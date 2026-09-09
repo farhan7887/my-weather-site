@@ -11,6 +11,16 @@ import {
 
 import { cities, getCityBySlug } from "@/data/cities";
 import WeatherCityClient from "@/components/WeatherCityClient";
+// Simple concurrency limiter
+let activeRequests = 0;
+const MAX_CONCURRENT = 3;
+
+async function waitForSlot() {
+  while (activeRequests >= MAX_CONCURRENT) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  activeRequests++;
+}
 
 type PageProps = {
   params: Promise<{
@@ -46,7 +56,7 @@ type WeatherResponse = {
 export const revalidate = 3600;
 
 export function generateStaticParams() {
-  return cities.map((city) => ({
+  return cities.slice(0, 10).map((city) => ({
     city: city.slug,
   }));
 }
@@ -99,9 +109,11 @@ export async function generateMetadata({
   };
 }
 
-async function getWeather(
+
+  async function getWeather(
   latitude: number,
-  longitude: number
+  longitude: number,
+  retries = 3
 ): Promise<WeatherResponse> {
   const url =
     `https://api.open-meteo.com/v1/forecast?` +
@@ -113,18 +125,33 @@ async function getWeather(
     `&forecast_days=7` +
     `&timezone=auto`;
 
-  const response = await fetch(url, {
-    next: {
-      revalidate: 3600,
-    },
-  });
+  await waitForSlot();
 
-  if (!response.ok) {
-    throw new Error("Failed to fetch weather data.");
+  try {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          next: { revalidate: 3600 },
+          signal: AbortSignal.timeout(20000),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Open-Meteo returned ${response.status}`);
+        }
+
+        return await response.json();
+      } catch (err) {
+        if (attempt === retries) throw err;
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
+    }
+    throw new Error("Unreachable");
+  } finally {
+    activeRequests--;
   }
-
-  return response.json();
 }
+
+  
 
 export default async function WeatherCityPage({
   params,
@@ -140,11 +167,11 @@ export default async function WeatherCityPage({
   let weather: WeatherResponse;
 
   try {
-    weather = await getWeather(city.latitude, city.longitude);
-  } catch {
-    throw new Error("Unable to load weather data.");
-  }
-
+  weather = await getWeather(city.latitude, city.longitude);
+} catch (err) {
+  console.error(`Weather fetch failed for ${city.slug}:`, err);
+  throw new Error("Unable to load weather data.");
+}
   /*
    * JSON-LD structured data.
    *
