@@ -136,7 +136,12 @@ export default function LocationWeatherCard() {
   }
 
   const { city, weather } = data;
-  const slug = createCitySlug(city.name, city.country);
+  const slug = createCitySlug(
+    city.name,
+    city.country,
+    city.latitude,
+    city.longitude
+  );
   const weatherLabel = getWeatherLabel(weather.weatherCode);
 
   return (

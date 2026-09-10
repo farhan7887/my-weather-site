@@ -44,6 +44,12 @@ export async function GET(request: NextRequest) {
     const city = await reverseGeocode(latitude, longitude);
 
     if (!city) {
+      console.error(
+        "reverseGeocode returned null for:",
+        latitude,
+        longitude
+      );
+
       return NextResponse.json(
         { error: "Unable to determine your city." },
         { status: 404 }
@@ -58,13 +64,31 @@ export async function GET(request: NextRequest) {
       `&current=temperature_2m,weather_code,relative_humidity_2m` +
       `&timezone=auto`;
 
-    const weatherResponse = await fetch(weatherUrl, {
-      next: {
-        revalidate: 3600,
-      },
-    });
+    let weatherResponse: Response;
+
+    try {
+      weatherResponse = await fetch(weatherUrl, {
+        next: {
+          revalidate: 3600,
+        },
+      });
+    } catch (fetchErr) {
+      console.error("Open-Meteo fetch threw an error:", fetchErr);
+
+      return NextResponse.json(
+        { error: "Unable to reach weather service." },
+        { status: 502 }
+      );
+    }
 
     if (!weatherResponse.ok) {
+      const errorBody = await weatherResponse.text().catch(() => "");
+      console.error(
+        "Open-Meteo weather fetch failed:",
+        weatherResponse.status,
+        errorBody
+      );
+
       return NextResponse.json(
         { error: "Unable to fetch current weather." },
         { status: 502 }
@@ -82,6 +106,11 @@ export async function GET(request: NextRequest) {
       typeof current.weather_code !== "number" ||
       typeof current.relative_humidity_2m !== "number"
     ) {
+      console.error(
+        "Invalid weather data shape received:",
+        JSON.stringify(weatherData)
+      );
+
       return NextResponse.json(
         { error: "Invalid weather data received." },
         { status: 502 }

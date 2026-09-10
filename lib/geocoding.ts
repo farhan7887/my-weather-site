@@ -90,11 +90,17 @@ export async function searchCities(query: string): Promise<GeoCity[]> {
 }
 
 /**
- * Find a city from a city--country slug.
+ * Find a city from a city--country slug, optionally with
+ * embedded coordinates: "name--country@lat,lon".
  *
- * Slug format: "paris--france", "new-york--united-states"
- * The "--" separates the city name part from the country part,
- * so multi-word names and countries never get mixed up.
+ * If coordinates are embedded in the slug, they are used directly
+ * and NO search call is made — this avoids 404s for small localities
+ * (e.g. "Chak Shahzad") that exist in Nominatim's reverse-geocode
+ * results but are not present in Open-Meteo's geocoding database.
+ *
+ * If no coordinates are embedded (older/manual slugs, e.g. the
+ * "popular cities" links), it falls back to the original
+ * name-search behavior.
  */
 export async function getCityBySlug(
   slug: string
@@ -105,8 +111,10 @@ export async function getCityBySlug(
     return null;
   }
 
-  // Split on the double-dash separator.
-  const [namePart, countryPart] = trimmedSlug.split("--");
+  // Split off any embedded coordinates first: "name--country@lat,lon"
+  const [mainPart, coordPart] = trimmedSlug.split("@");
+
+  const [namePart, countryPart] = mainPart.split("--");
 
   const nameQuery = (namePart ?? "").replace(/-/g, " ").trim();
   const countryQuery = (countryPart ?? "").replace(/-/g, " ").trim();
@@ -115,7 +123,23 @@ export async function getCityBySlug(
     return null;
   }
 
-  // Search using ONLY the city name — this is what the API expects.
+  // Fast path: coordinates are embedded in the slug — use them directly.
+  if (coordPart) {
+    const [latStr, lonStr] = coordPart.split(",");
+    const latitude = Number(latStr);
+    const longitude = Number(lonStr);
+
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      return {
+        name: toTitleCase(nameQuery),
+        country: toTitleCase(countryQuery),
+        latitude,
+        longitude,
+      };
+    }
+  }
+
+  // Fallback: no usable coordinates in the slug — search by name.
   const results = await searchCities(nameQuery);
 
   if (results.length === 0) {
@@ -153,7 +177,7 @@ export async function reverseGeocode(
     const response = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${encodeURIComponent(
         latitude
-      )}&lon=${encodeURIComponent(longitude)}&format=json`,
+      )}&lon=${encodeURIComponent(longitude)}&format=json&accept-language=en`,
       {
         headers: {
           "User-Agent": "SkyCast-Weather-App",
@@ -194,14 +218,23 @@ export async function reverseGeocode(
 }
 
 /**
- * Create a URL-safe slug from a city and country name.
+ * Create a URL-safe slug from a city and country name, with
+ * optional embedded coordinates: "name--country@lat,lon".
  *
- * Uses "--" to separate the city-name part from the country part,
- * so they can always be split back apart unambiguously.
+ * Passing latitude/longitude makes the resulting weather page
+ * resolve the city directly from the slug, without needing to
+ * re-search it against Open-Meteo's geocoding database (which
+ * doesn't cover small localities). This is what reverse-geocoded
+ * "your location" links should always use.
+ *
+ * Omitting latitude/longitude keeps the old behavior, used for
+ * manually curated links (e.g. "Popular Searches") where the
+ * exact coordinates aren't known ahead of time.
  *
  * Examples:
  *   createCitySlug("Paris", "France") -> "paris--france"
- *   createCitySlug("New York", "United States") -> "new-york--united-states"
+ *   createCitySlug("Chak Shahzad", "Pakistan", 33.6844, 73.0479)
+ *     -> "chak-shahzad--pakistan@33.6844,73.0479"
  */
 function slugifyPart(value: string): string {
   return value
@@ -212,9 +245,27 @@ function slugifyPart(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export function createCitySlug(name: string, country: string): string {
+function toTitleCase(value: string): string {
+  return value.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function createCitySlug(
+  name: string,
+  country: string,
+  latitude?: number,
+  longitude?: number
+): string {
   const namePart = slugifyPart(name);
   const countryPart = slugifyPart(country);
 
-  return `${namePart}--${countryPart}`;
+  if (
+    typeof latitude !== "number" ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    return `${namePart}--${countryPart}`;
+  }
+
+  return `${namePart}--${countryPart}@${latitude.toFixed(4)},${longitude.toFixed(4)}`;
 }
