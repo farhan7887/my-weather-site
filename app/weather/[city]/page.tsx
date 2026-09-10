@@ -9,7 +9,7 @@ import {
   MapPin,
 } from "lucide-react";
 
-import { cities, getCityBySlug } from "@/data/cities";
+import { getCityBySlug, createCitySlug } from "@/lib/geocoding";
 import WeatherCityClient from "@/components/WeatherCityClient";
 import { getCityImage } from "@/lib/getCityImage";
 import CityHeroImage from "@/components/CityHeroImage";
@@ -22,6 +22,7 @@ async function waitForSlot() {
   while (activeRequests >= MAX_CONCURRENT) {
     await new Promise((r) => setTimeout(r, 200));
   }
+
   activeRequests++;
 }
 
@@ -58,30 +59,33 @@ type WeatherResponse = {
 
 export const revalidate = 3600;
 
-export function generateStaticParams() {
-  return cities.slice(0, 10).map((city) => ({
-    city: city.slug,
-  }));
-}
+// Allow any city slug to be rendered on demand.
+export const dynamicParams = true;
 
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
   const { city: citySlug } = await params;
 
-  const city = getCityBySlug(citySlug);
+  // Global asynchronous geocoding lookup
+  const city = await getCityBySlug(citySlug);
 
   if (!city) {
     return {
       title: "Weather Forecast | SkyCast",
-      description: "Live weather forecasts and conditions across Pakistan.",
+      description:
+        "Live weather forecasts and conditions from cities around the world.",
     };
   }
+
+  const location = city.admin1
+    ? `${city.name}, ${city.admin1}, ${city.country}`
+    : `${city.name}, ${city.country}`;
 
   return {
     title: `${city.name} Weather Today - Live Forecast, Temperature & Humidity`,
 
-    description: `Get accurate live weather updates for ${city.name}, ${city.province}, including hourly forecast, 7-day forecast, temperature, humidity and wind speed.`,
+    description: `Get accurate live weather updates for ${location}, including hourly forecast, 7-day forecast, temperature, humidity and wind speed.`,
 
     keywords: [
       `${city.name} weather`,
@@ -93,21 +97,21 @@ export async function generateMetadata({
     ],
 
     alternates: {
-      canonical: `/weather/${city.slug}`,
+      canonical: `/weather/${citySlug}`,
     },
 
     openGraph: {
       title: `${city.name} Weather Today | SkyCast`,
-      description: `Live weather forecast for ${city.name} including temperature, humidity, wind and a 7-day forecast.`,
+      description: `Live weather forecast for ${location} including temperature, humidity, wind and a 7-day forecast.`,
       type: "website",
-      url: `/weather/${city.slug}`,
+      url: `/weather/${citySlug}`,
       siteName: "SkyCast",
     },
 
     twitter: {
       card: "summary_large_image",
       title: `${city.name} Weather Today | SkyCast`,
-      description: `Check the latest weather conditions and forecast for ${city.name}.`,
+      description: `Check the latest weather conditions and forecast for ${location}.`,
     },
   };
 }
@@ -144,9 +148,11 @@ async function getWeather(
         return await response.json();
       } catch (err) {
         if (attempt === retries) throw err;
+
         await new Promise((r) => setTimeout(r, 1500 * attempt));
       }
     }
+
     throw new Error("Unreachable");
   } finally {
     activeRequests--;
@@ -158,7 +164,8 @@ export default async function WeatherCityPage({
 }: PageProps) {
   const { city: citySlug } = await params;
 
-  const city = getCityBySlug(citySlug);
+  // Global async city lookup
+  const city = await getCityBySlug(citySlug);
 
   if (!city) {
     notFound();
@@ -169,11 +176,15 @@ export default async function WeatherCityPage({
   try {
     weather = await getWeather(city.latitude, city.longitude);
   } catch (err) {
-    console.error(`Weather fetch failed for ${city.slug}:`, err);
+    console.error(`Weather fetch failed for ${city.name}:`, err);
     throw new Error("Unable to load weather data.");
   }
 
-  const cityImageUrl = await getCityImage(city.name, "Pakistan");
+  // Get representative city image from Wikipedia.
+  const cityImageUrl = await getCityImage(
+    city.name,
+    city.country
+  );
 
   /*
    * JSON-LD structured data.
@@ -181,15 +192,19 @@ export default async function WeatherCityPage({
    * This gives search engines structured information about
    * the weather page.
    */
+  const location = city.admin1
+    ? `${city.name}, ${city.admin1}, ${city.country}`
+    : `${city.name}, ${city.country}`;
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "WeatherForecast",
 
     name: `${city.name} Weather Forecast`,
 
-    description: `Current weather and 7-day weather forecast for ${city.name}, ${city.province}, Pakistan.`,
+    description: `Current weather and 7-day weather forecast for ${location}.`,
 
-    url: `https://knowaboutweather.vercel.app/weather/${city.slug}`,
+    url: `https://knowaboutweather.vercel.app/weather/${citySlug}`,
 
     spatialCoverage: {
       "@type": "Place",
@@ -234,6 +249,21 @@ export default async function WeatherCityPage({
       );
     })
     .slice(0, 24);
+
+  /*
+   * A few globally popular cities.
+   *
+   * These are only navigation links. They do not replace
+   * the dynamic global geocoding system.
+   */
+  const popularCities = [
+    { name: "London", country: "United Kingdom" },
+    { name: "New York", country: "United States" },
+    { name: "Paris", country: "France" },
+    { name: "Tokyo", country: "Japan" },
+    { name: "Dubai", country: "United Arab Emirates" },
+    { name: "Singapore", country: "Singapore" },
+  ];
 
   return (
     <>
@@ -298,20 +328,24 @@ export default async function WeatherCityPage({
           <section className="mx-auto max-w-5xl pb-10 pt-16 text-center sm:pt-20">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white/70 backdrop-blur-xl">
               <MapPin className="h-4 w-4" />
-              {city.province}, Pakistan
+
+              {city.admin1
+                ? `${city.admin1}, ${city.country}`
+                : city.country}
             </div>
 
             <h1 className="text-4xl font-black tracking-tight sm:text-6xl">
               {city.name} Weather
+
               <span className="block bg-gradient-to-r from-white via-cyan-100 to-blue-300 bg-clip-text text-transparent">
                 Today & 7-Day Forecast
               </span>
             </h1>
 
             <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-white/60 sm:text-lg">
-              Get the latest weather conditions in {city.name}, including
-              temperature, humidity, wind speed, hourly weather and the
-              upcoming 7-day forecast.
+              Get the latest weather conditions in {city.name},{" "}
+              including temperature, humidity, wind speed, hourly
+              weather and the upcoming 7-day forecast.
             </p>
           </section>
 
@@ -322,47 +356,51 @@ export default async function WeatherCityPage({
             hourlyForecast={hourlyForecast}
           />
 
-          {/* Nearby Cities */}
+          {/* Popular Searches */}
           <section className="mx-auto mt-16 max-w-5xl pb-16">
             <div className="mb-6">
               <h2 className="text-2xl font-bold">
-                Nearby Cities
+                Popular Searches
               </h2>
 
               <p className="mt-1 text-sm text-white/50">
-                Explore weather forecasts for other cities in Pakistan.
+                Explore weather forecasts for popular cities around
+                the world.
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              {cities
-                .filter((item) => item.slug !== city.slug)
-                .sort(() => 0.5 - Math.random())
-                .slice(0, 6)
-                .map((nearbyCity) => (
+              {popularCities.map((popularCity) => {
+                const slug = createCitySlug(
+                  popularCity.name,
+                  popularCity.country
+                );
+
+                return (
                   <Link
-                    key={nearbyCity.slug}
-                    href={`/weather/${nearbyCity.slug}`}
+                    key={slug}
+                    href={`/weather/${slug}`}
                     className="group rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/10"
                   >
                     <MapPin className="mb-3 h-5 w-5 text-white/50 transition group-hover:text-white" />
 
                     <p className="font-semibold">
-                      {nearbyCity.name}
+                      {popularCity.name}
                     </p>
 
                     <p className="mt-1 text-xs text-white/40">
-                      {nearbyCity.province}
+                      {popularCity.country}
                     </p>
                   </Link>
-                ))}
+                );
+              })}
             </div>
           </section>
 
           {/* Footer */}
           <footer className="border-t border-white/10 py-6 text-center text-sm text-white/35">
-            Weather data provided by Open-Meteo. Forecasts are updated
-            periodically.
+            Weather data provided by Open-Meteo. Forecasts are
+            updated periodically.
           </footer>
         </div>
       </main>

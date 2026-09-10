@@ -14,7 +14,7 @@ import {
   Wind,
 } from "lucide-react";
 
-import type { City } from "@/data/cities";
+import type { GeoCity } from "@/lib/geocoding";
 
 type WeatherResponse = {
   current: {
@@ -42,7 +42,7 @@ type HourlyForecast = {
 };
 
 type Props = {
-  city: City;
+  city: GeoCity;
   weather: WeatherResponse;
   hourlyForecast: HourlyForecast[];
 };
