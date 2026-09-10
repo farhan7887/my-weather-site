@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { cities } from "@/data/cities";
 
-const BASE_URL = "https://example.com";
+const BASE_URL = "https://knowaboutweather.vercel.app";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const cityPages: MetadataRoute.Sitemap = cities.map((city) => ({

@@ -186,7 +186,7 @@ export default async function WeatherCityPage({
 
     description: `Current weather and 7-day weather forecast for ${city.name}, ${city.province}, Pakistan.`,
 
-    url: `https://example.com/weather/${city.slug}`,
+    url: `https://knowaboutweather.vercel.app/weather/${city.slug}`,
 
     spatialCoverage: {
       "@type": "Place",

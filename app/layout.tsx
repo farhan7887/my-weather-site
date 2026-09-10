@@ -42,7 +42,7 @@ export const metadata: Metadata = {
   creator: "SkyCast",
   publisher: "SkyCast",
 
-  metadataBase: new URL("https://example.com"),
+  metadataBase: new URL("https://knowaboutweather.vercel.app"),
 
   robots: {
     index: true,
