@@ -11,6 +11,9 @@ import {
 
 import { cities, getCityBySlug } from "@/data/cities";
 import WeatherCityClient from "@/components/WeatherCityClient";
+import { getCityImage } from "@/lib/getCityImage";
+import CityHeroImage from "@/components/CityHeroImage";
+
 // Simple concurrency limiter
 let activeRequests = 0;
 const MAX_CONCURRENT = 3;
@@ -109,8 +112,7 @@ export async function generateMetadata({
   };
 }
 
-
-  async function getWeather(
+async function getWeather(
   latitude: number,
   longitude: number,
   retries = 3
@@ -151,8 +153,6 @@ export async function generateMetadata({
   }
 }
 
-  
-
 export default async function WeatherCityPage({
   params,
 }: PageProps) {
@@ -167,11 +167,14 @@ export default async function WeatherCityPage({
   let weather: WeatherResponse;
 
   try {
-  weather = await getWeather(city.latitude, city.longitude);
-} catch (err) {
-  console.error(`Weather fetch failed for ${city.slug}:`, err);
-  throw new Error("Unable to load weather data.");
-}
+    weather = await getWeather(city.latitude, city.longitude);
+  } catch (err) {
+    console.error(`Weather fetch failed for ${city.slug}:`, err);
+    throw new Error("Unable to load weather data.");
+  }
+
+  const cityImageUrl = await getCityImage(city.name, "Pakistan");
+
   /*
    * JSON-LD structured data.
    *
@@ -281,6 +284,15 @@ export default async function WeatherCityPage({
               Search another city
             </Link>
           </header>
+
+          {/* City Hero Image */}
+          <div className="mt-8">
+            <CityHeroImage
+              imageUrl={cityImageUrl}
+              cityName={city.name}
+              priority={true}
+            />
+          </div>
 
           {/* City Hero */}
           <section className="mx-auto max-w-5xl pb-10 pt-16 text-center sm:pt-20">
