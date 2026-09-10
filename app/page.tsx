@@ -1,4 +1,3 @@
-
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
@@ -22,6 +21,7 @@ import {
   Sunrise,
   Sunset,
 } from "lucide-react";
+import LocationWeatherCard from "@/components/LocationWeatherCard";
 
 type WeatherData = {
   current: {
@@ -417,6 +417,10 @@ export default function Home() {
             >
               {error}
             </motion.div>
+          )}
+
+          {!weather && !loading && (
+            <LocationWeatherCard />
           )}
         </section>
 
